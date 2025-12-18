@@ -3,6 +3,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { rateLimiter } from "./middleware/ratelimit.js";
 import { StatusCodes } from "http-status-codes";
+import { connectDB } from "./config/db.js";
 
 dotenv.config();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +27,7 @@ app.use((err, req, res, next) => {
   console.error(err);
   res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error: "Internal Server Error" });
 });
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Port is on ${PORT}`);
+  await connectDB()
 });
