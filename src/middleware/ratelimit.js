@@ -1,62 +1,80 @@
-import { StatusCodes } from "http-status-codes"; 
-
-
-
-const requestStore = new Map();
-const bannedIps = new Map();
+import IpRequest from '../models/request.model.js';
+import IpBan from '../models/ban.model.js';
 
 const MAX_REQUESTS = 10;
-const WINDOW_MS = 5*60*1000;
-const BAN_MS = 15*60*1000;
+const WINDOW_MS = 5 * 60 * 1000; 
+const BAN_MS = 15 * 60 * 1000;  
 
+export async function rateLimiter(req, res, next) {
+  try {
+    const ip =
+      req.headers['x-forwarded-for']?.split(',')[0] ||
+      req.socket.remoteAddress;
 
-export function rateLimiter(req, res, next) {
-  const ip =
-    req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress;
+    const now = new Date();
 
-  const now = Date.now();
+    const activeBan = await IpBan.findOne({
+      ipAddress: ip,
+      isActive: true,
+      banExpiresAt: { $gt: now }
+    });
 
-  if (bannedIps.has(ip)) {
-    const banExpiry = bannedIps.get(ip);
-
-    if (now < banExpiry) {
-      return res.status(StatusCodes.FORBIDDEN).json({
-        error: "IP temporarily blocked",
-        retryAfter: new Date(banExpiry),
+    if (activeBan) {
+      return res.status(403).json({
+        error: 'IP temporarily blocked',
+        retryAfter: activeBan.banExpiresAt
       });
-    } else {
-      bannedIps.delete(ip);
     }
+
+    let record = await IpRequest.findOne({ ipAddress: ip });
+
+    if (!record) {
+      await IpRequest.create({
+        ipAddress: ip,
+        requestCount: 1,
+        windowStart: now,
+        lastRequestAt: now
+      });
+      return next();
+    }
+
+    const windowExpired =
+      now.getTime() - record.windowStart.getTime() > WINDOW_MS;
+
+    if (windowExpired) {
+      record.requestCount = 1;
+      record.windowStart = now;
+      record.lastRequestAt = now;
+      await record.save();
+      return next();
+    }
+
+
+    record.requestCount += 1;
+    record.lastRequestAt = now;
+    await record.save();
+
+
+    if (record.requestCount > MAX_REQUESTS) {
+      await IpBan.create({
+        ipAddress: ip,
+        bannedAt: now,
+        banExpiresAt: new Date(now.getTime() + BAN_MS),
+        reason: 'Rate limit exceeded',
+        isActive: true
+      });
+
+    
+      await IpRequest.deleteOne({ ipAddress: ip });
+
+      return res.status(429).json({
+        error: 'Too many requests. IP banned for 15 minutes.'
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('Rate limiter error:', error);
+    next(); 
   }
-
-  const record = requestStore.get(ip);
-
-  if (!record) {
-    requestStore.set(ip, {
-      count: 1,
-      windowStart: now,
-    });
-    return next();
-  }
-
-  if (now - record.windowStart > WINDOW_MS) {
-    requestStore.set(ip, {
-      count: 1,
-      windowStart: now,
-    });
-    return next();
-  }
-
-  record.count += 1;
-
-  if (record.count > MAX_REQUESTS) {
-    bannedIps.set(ip, now + BAN_MS);
-    requestStore.delete(ip);
-
-    return res.status(StatusCodes.TOO_MANY_REQUESTS).json({
-      error: "Too many requests. IP banned for 15 minutes.",
-    });
-  }
-
-  next();
 }

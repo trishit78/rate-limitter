@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { rateLimiter } from "./middleware/ratelimit.js";
 import { StatusCodes } from "http-status-codes";
 import { connectDB } from "./config/db.js";
+import { requestLogger } from "./middleware/request.middleware.js";
 
 dotenv.config();
 const PORT = process.env.PORT || 3001;
@@ -12,7 +13,7 @@ const app = express();
 
 app.use(express.json());
 
-
+app.use(requestLogger)
 app.use(rateLimiter)
 
 app.get("/", (req, res) => {
