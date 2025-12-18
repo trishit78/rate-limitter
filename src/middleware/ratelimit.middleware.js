@@ -1,29 +1,35 @@
-import IpRequest from '../models/request.model.js';
-import IpBan from '../models/ban.model.js';
+import IpRequest from "../models/request.model.js";
+import IpBan from "../models/ban.model.js";
 
 const MAX_REQUESTS = 10;
-const WINDOW_MS = 5 * 60 * 1000; 
-const BAN_MS = 15 * 60 * 1000;  
+const WINDOW_MS = 5 * 60 * 1000;
+const BAN_MS = 15 * 60 * 1000;
 
 export async function rateLimiter(req, res, next) {
   try {
     const ip =
-      req.headers['x-forwarded-for']?.split(',')[0] ||
-      req.socket.remoteAddress;
+      req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress;
 
     const now = new Date();
 
     const activeBan = await IpBan.findOne({
       ipAddress: ip,
-      isActive: true,
-      banExpiresAt: { $gt: now }
+      banExpiresAt: { $gt: now },
     });
 
     if (activeBan) {
-      return res.status(403).json({
-        error: 'IP temporarily blocked',
-        retryAfter: activeBan.banExpiresAt
-      });
+      const r_ms = activeBan.banExpiresAt.getTime() - now.getTime();
+      const r_s = Math.ceil(r_ms / 1000);
+      const remainingMinutes = Math.ceil(r_s / 60);
+
+      return res
+        .status(403)
+
+        .set("Retry-After", r_s.toString())
+        .json({
+          error: "IP temporarily blocked",
+          retryAfterMinutes: remainingMinutes,
+        });
     }
 
     let record = await IpRequest.findOne({ ipAddress: ip });
@@ -33,7 +39,7 @@ export async function rateLimiter(req, res, next) {
         ipAddress: ip,
         requestCount: 1,
         windowStart: now,
-        lastRequestAt: now
+        lastRequestAt: now,
       });
       return next();
     }
@@ -49,32 +55,29 @@ export async function rateLimiter(req, res, next) {
       return next();
     }
 
-
     record.requestCount += 1;
     record.lastRequestAt = now;
     await record.save();
-
 
     if (record.requestCount > MAX_REQUESTS) {
       await IpBan.create({
         ipAddress: ip,
         bannedAt: now,
         banExpiresAt: new Date(now.getTime() + BAN_MS),
-        reason: 'Rate limit exceeded',
-        isActive: true
+        reason: "Rate limit exceeded",
+        isActive: true,
       });
 
-    
       await IpRequest.deleteOne({ ipAddress: ip });
 
       return res.status(429).json({
-        error: 'Too many requests. IP banned for 15 minutes.'
+        error: "Too many requests. IP banned for 15 minutes.",
       });
     }
 
     next();
   } catch (error) {
-    console.error('Rate limiter error:', error);
-    next(); 
+    console.error("Rate limiter error:", error);
+    next();
   }
 }

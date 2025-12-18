@@ -1,5 +1,5 @@
 import geoip from "geoip-lite";
-import IpLog from "../models/logs.js";
+import IpLog from "../models/logs.model.js";
 
 export async function requestLogger(req, res, next) {
   const ip =
@@ -20,7 +20,6 @@ export async function requestLogger(req, res, next) {
         latitude: geo?.ll?.[0],
         longitude: geo?.ll?.[1],
       });
-      console.log("logs", logs);
     } catch (err) {
       console.error("Request log error:", err.message);
     }

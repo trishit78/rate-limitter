@@ -14,7 +14,8 @@ const ipBanSchema = new Schema(
     },
     banExpiresAt: {
       type: Date,
-      required: true
+      required: true,
+      index: { expires: 0 }
     },
     reason: {
       type: String,
